@@ -1,5 +1,5 @@
 controller_list:
-  - name: panda_arm_controller
+  - name: position_joint_trajectory_controller
     action_ns: follow_joint_trajectory
     type: FollowJointTrajectory
     default: True
@@ -11,7 +11,7 @@ controller_list:
       - panda_joint5
       - panda_joint6
       - panda_joint7
-  - name: qbhand_controller
+  - name: /qbhand/control/qbhand_synergy_trajectory_controller
     action_ns: follow_joint_trajectory
     type: FollowJointTrajectory
     default: True

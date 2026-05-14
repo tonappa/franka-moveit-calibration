@@ -181,6 +181,109 @@ rosservice call /communication_handler/activate_motors "{id: 1, max_repeats: 0}"
 
 ---
 
+## 8. Franka + qbSoftHand integrated pipeline (MoveIt)
+
+Recommended way to bring up the **real** Franka with the qbSoftHand mounted on the
+flange and plan/execute with MoveIt. Two terminals are enough.
+
+### Terminal 1 — robot bringup (Franka + hand)
+
+```bash
+roslaunch franka_softhand_bringup franka_softhand.launch \
+    robot_ip:=<FRANKA_IP> \
+    device_id:=1
+```
+
+Defaults already set inside the launch:
+- `standalone:=true` — starts the qb communication handler
+- `activate_on_initialization:=true` — qbSoftHand motors armed at startup
+- `set_commands_async:=true` — required for the qb HW write loop at 1 ms
+- `realtime_config:=ignore` — avoids `RealtimeException` on non-PREEMPT_RT kernels.
+  If you have RT permissions/kernel set, override with `realtime_config:=enforce`.
+
+Useful overrides: `arm_id:=panda`, `use_specific_serial_port:=true serial_port_name:=/dev/ttyUSB0`.
+
+### Terminal 2 — MoveIt (controllers + move_group + RViz)
+
+```bash
+roslaunch franka_softhand_bringup franka_softhand_moveit.launch
+```
+
+Spawns `position_joint_trajectory_controller` for the arm (rigid, libfranka motion
+generator), wires MoveIt to the already-running
+`/qbhand/control/qbhand_synergy_trajectory_controller` for the hand, then starts
+`move_group` and RViz.
+
+Optional args: `use_rviz:=false`, `pipeline:=chomp`.
+
+---
+
+## Notes — manual hand commands
+
+The hand controller is `qbhand_synergy_trajectory_controller` in the `/qbhand/control/`
+namespace. Closure value range: **`0` = fully open, `1` = fully closed**.
+
+**Close:**
+```bash
+rostopic pub -1 /qbhand/control/qbhand_synergy_trajectory_controller/command \
+  trajectory_msgs/JointTrajectory "{
+    joint_names: ['qbhand_synergy_joint'],
+    points: [{positions: [1.0], time_from_start: {secs: 2}}]
+  }"
+```
+
+**Open:**
+```bash
+rostopic pub -1 /qbhand/control/qbhand_synergy_trajectory_controller/command \
+  trajectory_msgs/JointTrajectory "{
+    joint_names: ['qbhand_synergy_joint'],
+    points: [{positions: [0.0], time_from_start: {secs: 2}}]
+  }"
+```
+
+`time_from_start` controls the duration (larger = slower).
+
+GUI alternative (slider):
+```bash
+rosrun rqt_joint_trajectory_controller rqt_joint_trajectory_controller
+# select controller_manager: /qbhand/control, controller: qbhand_synergy_trajectory_controller
+```
+
+> Do not mix topic publishing and the action server on the same device.
+
+---
+
+## Notes — recovering from a Franka reflex
+
+If MoveIt aborts with `motion aborted by reflex! ["cartesian_reflex"]` or any
+subsequent command is rejected with
+`command not possible in the current mode ("Reflex")`, the robot is in error
+state and must be re-armed:
+
+```bash
+rostopic pub -1 /franka_control/error_recovery/goal \
+  franka_msgs/ErrorRecoveryActionGoal "{}"
+```
+
+After recovery the arm will re-engage and accept new motion commands.
+
+**Avoiding reflexes:**
+- In RViz set `Velocity Scaling` and `Acceleration Scaling` to `0.1–0.2` for
+  conservative motions (the SoftHand on the flange adds inertia, making the default
+  `franka_control_node.yaml` cartesian thresholds easy to trip).
+- For higher speeds, raise the cartesian/torque collision thresholds at runtime:
+
+  ```bash
+  rosservice call /franka_control/set_force_torque_collision_behavior "{
+    lower_torque_thresholds_nominal: [40,40,36,36,32,28,24],
+    upper_torque_thresholds_nominal: [40,40,36,36,32,28,24],
+    lower_force_thresholds_nominal:  [40,40,40,50,50,50],
+    upper_force_thresholds_nominal:  [40,40,40,50,50,50]
+  }"
+  ```
+
+---
+
 ## Project structure
 
 ```
