@@ -1,0 +1,83 @@
+
+services:
+  ros_dev:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile
+      args:
+        - ROS_DISTRO=${ROS_DISTRO}
+        - ROS_VERSION=${ROS_VERSION}
+        - MYUID=${MYUID}
+        - MYGID=${MYGID}
+        - WORKSPACE_NAME=${WORKSPACE_NAME}
+    image: ${IMAGE_NAME}:${ROS_DISTRO}
+    
+    # --- hardware config e permissions ---
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    privileged: true
+    runtime: nvidia
+    network_mode: host
+    ipc: host
+    
+    # add the container's user in host group to acces hardware
+    group_add:
+      - "${AUDIO_GID}"
+      - "${VIDEO_GID}"
+      
+    # mapping hardware devices
+    devices:
+      - "/dev/dri:/dev/dri"
+      - "/dev/snd:/dev/snd"
+      - "/dev/video0:/dev/video0"
+      - "/dev/video1:/dev/video1"
+      - "/dev/bus/usb:/dev/bus/usb"
+
+    # --- env variables ---
+    environment:
+      - WORKSPACE_NAME=${WORKSPACE_NAME}
+      - DISPLAY=${DISPLAY}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - ROS_DISTRO=${ROS_DISTRO}
+      - ROS_VERSION=${ROS_VERSION}
+      - QT_X11_NO_MITSHM=1
+      #- XAUTHORITY=/home/ros/.Xauthority
+      - XAUTHORITY=${XAUTH}
+      - PULSE_SERVER=${PULSE_SERVER}
+      - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}
+      - MPLCONFIGDIR=/home/ros/.matplotlib
+      # bash chrono
+      - HISTFILE=/home/ros/.bash_history
+      - HISTFILESIZE=10000
+      - SAVEHIST=10000
+
+    # --- volumes and mount ---
+    volumes:
+      # mount workspace in dynamic variable
+      - .:/home/ros/${WORKSPACE_NAME}
+      
+      # volumes for GUI
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # - ${XAUTHORITY}:/home/ros/.Xauthority
+      - ${XAUTH}:${XAUTH}
+      - ${XDG_RUNTIME_DIR}/pulse/native:${XDG_RUNTIME_DIR}/pulse/native
+      - /dev/shm:/dev/shm
+      
+      # volume for bash chrono
+      - ${BASH_HISTORY_PATH}:/home/ros/.bash_history
+      
+      # volume for VSCode integration
+      - ${VSCODE_PATH}:/home/ros/.vscode
+      - ${VSCODE_SERVER_PATH}:/home/ros/.vscode-server
+      
+    # to mantain the container alive for interactive session
+    stdin_open: true
+    tty: true
