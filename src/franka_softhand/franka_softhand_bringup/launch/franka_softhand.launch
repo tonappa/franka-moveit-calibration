@@ -1,0 +1,69 @@
+<launch>
+  <!-- ===== Franka ===== -->
+  <arg name="robot_ip"       doc="IP address of the Franka robot"/>
+  <arg name="arm_id"         default="panda"/>
+
+  <!-- ===== qbSoftHand ===== -->
+  <arg name="hand_namespace" default="qbhand"/>
+  <arg name="device_id"      default="1"    doc="qbSoftHand device ID [1, 128]"/>
+  <arg name="standalone"     default="true" doc="Start the qb Communication Handler"/>
+  <arg name="use_specific_serial_port"  default="false"/>
+  <arg name="serial_port_name"          default="/tmp/ttyUSB0"
+       if="$(arg use_specific_serial_port)"/>
+
+  <!-- ===== Robot description ===== -->
+  <param name="robot_description"
+         command="$(find xacro)/xacro
+                  $(find franka_softhand_description)/urdf/franka_softhand.urdf.xacro
+                  arm_id:=$(arg arm_id)
+                  hand_namespace:=$(arg hand_namespace)"/>
+
+  <!-- ===== Franka control ===== -->
+  <node name="franka_control" pkg="franka_control" type="franka_control_node"
+        output="screen" required="true">
+    <rosparam command="load"
+              file="$(find franka_control)/config/franka_control_node.yaml"
+              subst_value="true"/>
+    <param name="robot_ip" value="$(arg robot_ip)"/>
+  </node>
+
+  <rosparam command="load"
+            file="$(find franka_control)/config/default_controllers.yaml"
+            subst_value="true"/>
+
+  <node name="franka_state_controller_spawner" pkg="controller_manager"
+        type="spawner" respawn="false" output="screen"
+        args="franka_state_controller"/>
+
+  <!-- ===== qbSoftHand communication handler ===== -->
+  <include file="$(find qb_device_driver)/launch/communication_handler.launch"
+           if="$(arg standalone)">
+    <arg name="use_specific_serial_port" value="$(arg use_specific_serial_port)"/>
+    <arg name="serial_port_name"         value="$(arg serial_port_name)"
+         if="$(arg use_specific_serial_port)"/>
+  </include>
+
+  <!-- ===== qbSoftHand device + robot bringup ===== -->
+  <include file="$(find qb_device_bringup)/launch/device_bringup.launch">
+    <arg name="device_id"        value="$(arg device_id)"/>
+    <arg name="device_type"      value="qbhand"/>
+    <arg name="device_name"      value="$(arg hand_namespace)"/>
+    <arg name="robot_namespace"  value="$(arg hand_namespace)"/>
+    <arg name="use_without_robot" value="true"/>
+  </include>
+
+  <include file="$(find qb_device_bringup)/launch/robot_bringup.launch">
+    <arg name="device_name"     value="$(arg hand_namespace)"/>
+    <arg name="robot_name"      value="qbhand"/>
+    <arg name="robot_namespace" value="$(arg hand_namespace)"/>
+    <arg name="robot_hardware"  value="[$(arg hand_namespace)]"/>
+    <arg name="robot_package"   value="qb_hand"/>
+    <arg name="source_list"     value="[franka_state_controller/joint_states, $(arg hand_namespace)/control/joint_states]"/>
+    <arg name="use_without_robot" value="true"/>
+  </include>
+
+  <!-- ===== robot_state_publisher ===== -->
+  <node name="robot_state_publisher" pkg="robot_state_publisher"
+        type="robot_state_publisher" output="screen"/>
+
+</launch>
