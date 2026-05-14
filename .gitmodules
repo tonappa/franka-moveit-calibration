@@ -1,0 +1,6 @@
+[submodule "src/utils/qbdevice-ros"]
+	path = src/utils/qbdevice-ros
+	url = https://bitbucket.org/qbrobotics/qbdevice-ros.git
+[submodule "src/utils/qbhand-ros"]
+	path = src/utils/qbhand-ros
+	url = https://bitbucket.org/qbrobotics/qbhand-ros.git
