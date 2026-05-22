@@ -32,6 +32,16 @@ If you already cloned without `--recurse-submodules`, fetch the submodules with:
 git submodule update --init --recursive
 ```
 
+### One-time post-clone edit
+
+Open `src/utils/franka_ros/franka_control/config/franka_control_node.yaml` and make sure this line reads:
+
+```yaml
+realtime_config: ignore
+```
+
+This prevents `franka_control_node` from crashing on non-PREEMPT_RT kernels. The default upstream value is `enforce`; the submodule may reset it after a `git submodule update`.
+
 ---
 
 ## 2. Build the Docker image
@@ -208,7 +218,7 @@ Useful overrides: `arm_id:=panda`, `use_specific_serial_port:=true serial_port_n
 
 The base bringup does **not** start the RealSense camera. For perception or
 hand-eye calibration, use the dedicated launches under `franka_softhand_handeye`
-(see workflow 9).
+(see workflow 10).
 
 ### Terminal 2 — MoveIt (controllers + move_group + RViz)
 
@@ -291,7 +301,60 @@ After recovery the arm will re-engage and accept new motion commands.
 
 ---
 
-## 9. Hand-eye calibration (eye-to-hand, RealSense D435i)
+## 9. Full perception pipeline (Franka + MoveIt + RealSense)
+
+Complete operational setup for manipulation with perception. Run the four terminals in order.
+
+**Pre-conditions**: same as workflow 8. RealSense D435i physically mounted at a fixed position in the world; camera pose calibrated and stored in `franka_softhand_bringup/config/camera_pose.yaml`.
+
+### Terminal 1 — robot bringup (Franka + SoftHand)
+
+```bash
+roslaunch franka_softhand_bringup franka_softhand.launch \
+    robot_ip:=<FRANKA_IP> \
+    device_id:=1
+```
+
+### Terminal 2 — MoveIt + static planning scene
+
+```bash
+roslaunch franka_softhand_bringup franka_softhand_moveit.launch
+```
+
+Spawns arm and hand controllers, starts `move_group`, loads the static scene (table + robot base block), and opens RViz.
+
+### Terminal 3 — camera TF + MoveIt collision object
+
+```bash
+roslaunch franka_softhand_bringup camera_in_scene.launch
+```
+
+Publishes the static transform `world → camera_link` and adds the D435i collision box to the MoveIt planning scene. Pose and box dimensions are read from `franka_softhand_bringup/config/camera_pose.yaml`.
+
+To adjust the camera pose (fine-tuning after calibration), edit the `camera_pose` block in that YAML and relaunch this terminal only.
+
+### Terminal 4 — RealSense D435i (pointcloud + aligned depth)
+
+```bash
+roslaunch realsense2_camera rs_camera.launch \
+    enable_pointcloud:=true \
+    align_depth:=true
+```
+
+> **Docker note:** do **not** add `initial_reset:=true` — it causes issues inside Docker (see known quirks).
+
+Key topics published:
+
+| Topic | Content |
+|---|---|
+| `/camera/color/image_raw` | RGB image |
+| `/camera/depth/image_rect_raw` | Raw depth image |
+| `/camera/aligned_depth_to_color/image_raw` | Depth aligned to the RGB frame |
+| `/camera/depth/color/points` | XYZRGB pointcloud |
+
+---
+
+## 10. Hand-eye calibration (eye-to-hand, RealSense D435i)
 
 Eye-to-hand setup: RealSense fixed in the world, ArUco board mounted on the
 robot flange. Uses `moveit_calibration` (submodule under
@@ -309,7 +372,7 @@ source devel/setup.bash
 
 ### Pre-conditions
 
-- Workflow 8 pre-conditions (Franka FCI, qbSoftHand connected).
+- Workflow 9 pre-conditions (Franka FCI, qbSoftHand connected).
 - RealSense D435i physically mounted at a fixed position in the world (not on
   the EE).
 - ArUco board printed and rigidly attached to `panda_link8`.
