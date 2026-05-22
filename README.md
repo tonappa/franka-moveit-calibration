@@ -24,7 +24,9 @@ git clone --recurse-submodules git@github.com:tonappa/franka-moveit-calibration.
 cd franka-moveit-calibration
 ```
 
-The `--recurse-submodules` flag downloads `src/utils/moveit_calibration` (the MoveIt hand-eye calibration plugin).
+The `--recurse-submodules` flag downloads:
+- `src/utils/moveit_calibration` — MoveIt hand-eye calibration plugin
+- `src/utils/franka_ros` — Franka ROS stack (Noetic branch, `noetic-devel`)
 
 If you already cloned without it:
 
@@ -34,7 +36,7 @@ git submodule update --init --recursive
 
 ### One-time post-clone edit
 
-Open `src/utils/franka_ros/franka_control/config/franka_control_node.yaml` (from the apt-installed `ros-noetic-franka-ros`) and make sure:
+Open `src/utils/franka_ros/franka_control/config/franka_control_node.yaml` and make sure:
 
 ```yaml
 realtime_config: ignore
@@ -193,7 +195,8 @@ franka-moveit-calibration/
 │   │   └── urdf/
 │   │       └── panda_handeye.urdf.xacro    # Panda + camera at guess pose
 │   └── utils/
-│       └── moveit_calibration/  # submodule
+│       ├── franka_ros/          # submodule (noetic-devel)
+│       └── moveit_calibration/  # submodule (master)
 ├── docker-compose.yaml
 └── run_docker.sh
 ```
