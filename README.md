@@ -89,6 +89,8 @@ source devel/setup.bash
 
 Eye-to-hand setup: RealSense D435i fixed in the world, ArUco board mounted on `panda_link8`.
 
+> **Note:** the gripper is intentionally disabled for the calibration (`hand:=false` in the URDF xacro and `load_gripper:=false` passed to `move_group.launch`). It is not needed to obtain the `world → camera_link` transform, and removing it avoids SRDF/URDF mismatches. If your downstream project needs the hand, re-enable both flags after calibration.
+
 **Pre-conditions**:
 - Franka powered on, FCI active from Desk (`https://<robot_ip>/desk`), brakes released.
 - RealSense D435i physically mounted at a fixed position in the world (not on the EE).
@@ -138,23 +140,24 @@ Board parameters (used both to generate the image and to configure the RViz pane
 A green overlay appears on the board in the panel preview. If "Target detection failed": dictionary / size / separation wrong, marker not fully in frame, or poor lighting / blur.
 
 **Context tab**:
-- *Sensor configuration*: **Eye-to-hand**
-- *Sensor frame*: `camera_color_optical_frame`
-- *Object frame*: `handeye_target` (appears after the target is detected at least once)
-- *End-effector frame*: `panda_link8`
-- *Robot base frame*: `panda_link0`
+- *Sensor configuration*: choose **Eye-to-hand** or **Eye-in-hand** depending on your setup.
+- Select the desired frames for your configuration:
+  - *Sensor frame*: e.g. `camera_color_optical_frame`
+  - *Object frame*: `handeye_target` (appears after the target is detected at least once)
+  - *End-effector frame*: e.g. `panda_link8` (or `panda_hand` for eye-in-hand)
+  - *Robot base frame*: e.g. `panda_link0`
 
 **Calibrate tab**:
-- *Calibration solver*: **`ParkBryan1994`** (do **not** use `Daniilidis1999` — it returns complex eigenvalues with few or poorly-varied samples).
-- Acquire **≥15 samples** with **varied orientations** (≥30° on different axes — pitch, roll, yaw of the EE).
+- *Calibration solver*: **`crigroup/Daniilidis1999`**.
+- Acquire **>15 samples** by moving the robot to a variety of positions and orientations (wide angular spread on different axes — pitch, roll, yaw of the EE — gives a better solution).
 - Wait 1–2 s after each motion stops before clicking `Take sample`.
-- Click `Solve`. Sanity-check by re-solving with `TsaiLenz1989` — the two results should agree to a few millimetres / one degree.
+- After collecting samples, click `Solve` to obtain the camera pose. Use this result as the **initial guess** in `src/franka_handeye_calibration/config/camera_pose.yaml` if you want to refine the calibration with a second run.
 
 ### Save and apply the calibration
 
-1. `Save camera pose` → save into `src/franka_handeye_calibration/launch/camera_pose.launch`.
-   It contains a `static_transform_publisher` with `world → camera_link` (xyz + quaternion).
-2. To use the result in another workspace, copy the `args` values (xyz + quaternion) into that workspace's camera pose YAML.
+1. Click `Save camera pose` and save it into `src/franka_handeye_calibration/launch/`.
+   This produces a launch file containing a `static_transform_publisher` with the calibrated camera pose (xyz + quaternion).
+2. In that folder you will find the calibrated camera pose, ready to be reused in any of your downstream projects that need the `world → camera_link` transform.
 
 **Validation**: in RViz add a `TF` display and a `RobotModel`. The frame `camera_color_optical_frame` must sit physically where the real RealSense is mounted; `handeye_target` must appear on the actual marker surface (within 1–2 cm).
 

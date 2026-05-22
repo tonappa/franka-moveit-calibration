@@ -19,7 +19,8 @@
   <param name="robot_description"
          command="$(find xacro)/xacro
                   $(find franka_handeye_calibration)/urdf/panda_handeye.urdf.xacro
-                  arm_id:=$(arg arm_id)"/>
+                  arm_id:=$(arg arm_id)
+                  hand:=false"/>
 
   <!-- Franka control -->
   <node name="franka_control" pkg="franka_control" type="franka_control_node"
@@ -57,6 +58,8 @@
   <include file="$(find panda_moveit_config)/launch/move_group.launch">
     <arg name="pipeline"               value="$(arg pipeline)"/>
     <arg name="load_robot_description" value="false"/>
+    <arg name="transmission"           value="position"/>
+    <arg name="load_gripper"           value="false"/>
   </include>
 
   <!-- RealSense D435i -->

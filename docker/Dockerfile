@@ -32,8 +32,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN apt-get update && apt-get install --no-install-recommends -y \
     ros-${ROS_DISTRO}-franka-ros \
     ros-${ROS_DISTRO}-libfranka \
-    ros-${ROS_DISTRO}-panda-moveit-config \
     ros-${ROS_DISTRO}-moveit \
+    ros-${ROS_DISTRO}-moveit-visual-tools \
+    ros-${ROS_DISTRO}-moveit \
+    ros-${ROS_DISTRO}-ros-control \
     ros-${ROS_DISTRO}-ros-controllers \
     ros-${ROS_DISTRO}-joint-state-publisher \
     ros-${ROS_DISTRO}-rviz \
