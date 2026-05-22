@@ -1,6 +1,8 @@
-# Franka Panda + qbSoftHand — ROS Noetic (Docker)
+# franka-moveit-calibration
 
-Workspace for controlling the Franka Panda robot with MoveIt and qbSoftHand as end effector, running on ROS Noetic inside Docker.
+Eye-to-hand hand-eye calibration for Franka Panda with Intel RealSense D435i, running on ROS Noetic inside Docker.
+
+The calibration result (`world → camera_link` transform) is saved as a `static_transform_publisher` launch file and can be copied into any other workspace that uses the camera with the Panda.
 
 > **Note:** requires a PC with an NVIDIA GPU.
 
@@ -11,22 +13,20 @@ Workspace for controlling the Franka Panda robot with MoveIt and qbSoftHand as e
 - Linux with NVIDIA drivers installed (`nvidia-smi` must work)
 - Docker Engine and Docker Compose installed
 - Active X11 graphical session on the host (`DISPLAY=:0`)
-- User in the `audio` and `video` groups
+- User in the `video` group
 
 ---
 
 ## 1. Clone the repository
 
 ```bash
-git clone --recurse-submodules -b softhand git@github.com:tonappa/franka.git
-cd franka
+git clone --recurse-submodules git@github.com:tonappa/franka-moveit-calibration.git
+cd franka-moveit-calibration
 ```
 
-The `--recurse-submodules` flag automatically downloads the external packages:
-- `src/utils/qbdevice-ros` (including its nested submodules)
-- `src/utils/qbhand-ros`
+The `--recurse-submodules` flag downloads `src/utils/moveit_calibration` (the MoveIt hand-eye calibration plugin).
 
-If you already cloned without `--recurse-submodules`, fetch the submodules with:
+If you already cloned without it:
 
 ```bash
 git submodule update --init --recursive
@@ -34,13 +34,13 @@ git submodule update --init --recursive
 
 ### One-time post-clone edit
 
-Open `src/utils/franka_ros/franka_control/config/franka_control_node.yaml` and make sure this line reads:
+Open `src/utils/franka_ros/franka_control/config/franka_control_node.yaml` (from the apt-installed `ros-noetic-franka-ros`) and make sure:
 
 ```yaml
 realtime_config: ignore
 ```
 
-This prevents `franka_control_node` from crashing on non-PREEMPT_RT kernels. The default upstream value is `enforce`; the submodule may reset it after a `git submodule update`.
+This is already handled in the launch file (`<param name="realtime_config" value="ignore"/>`), so no manual edit is required.
 
 ---
 
@@ -50,7 +50,7 @@ This prevents `franka_control_node` from crashing on non-PREEMPT_RT kernels. The
 ./run_docker.sh build
 ```
 
-This installs ROS Noetic with Franka, MoveIt, and controller packages.
+Installs ROS Noetic with Franka, MoveIt, `panda_moveit_config`, `moveit_calibration`, and RealSense packages.
 
 ---
 
@@ -69,7 +69,7 @@ The container mounts the workspace at `/home/ros/franka`, forwards the GUI via X
 Inside the container:
 
 ```bash
-catkin build
+catkin_make
 source devel/setup.bash
 ```
 
@@ -83,405 +83,117 @@ source devel/setup.bash
 
 ---
 
-## 6. One-time setup — serial port permissions
+## 6. Hand-eye calibration (eye-to-hand, RealSense D435i)
 
-On the **host** machine (not inside the container), add your user to the `dialout` group to access the USB-RS485 converter:
+Eye-to-hand setup: RealSense D435i fixed in the world, ArUco board mounted on `panda_link8`.
 
-```bash
-sudo gpasswd -a $USER dialout
-```
+**Pre-conditions**:
+- Franka powered on, FCI active from Desk (`https://<robot_ip>/desk`), brakes released.
+- RealSense D435i physically mounted at a fixed position in the world (not on the EE).
+- ArUco board printed and rigidly attached to `panda_link8`.
+- `src/franka_handeye_calibration/config/camera_pose.yaml` contains a reasonable initial guess for the camera pose (not zero — the solver converges better with a guess close to the truth).
 
-Then logout and log back in (or reboot).
-
----
-
-## 7. qbSoftHand usage
-
-The qbSoftHand communicates via USB-RS485 converter connected to the workstation PC. Make sure the converter is plugged in before starting the container.
-
-### Step 1 — Communication Handler (terminal 1)
-
-Must always be started first. It scans serial ports and manages communication with the device:
+### Launch (single terminal)
 
 ```bash
-roslaunch qb_device_driver communication_handler.launch
+roslaunch franka_handeye_calibration handeye_calibration.launch robot_ip:=<FRANKA_IP>
 ```
 
-Expected output if the hand is connected:
-```
-[CommunicationHandler] handles [/dev/ttyUSB0]
-[CommunicationHandler] has found [1] device connected
-```
+This brings up everything in one shot: `franka_control`, `position_joint_trajectory_controller`, `move_group` (from `panda_moveit_config`), RealSense D435i node, and RViz.
 
-### Step 2 — Control node (terminal 2)
+### ArUco board
 
-```bash
-roslaunch qb_hand_control control.launch \
-  standalone:=false \
-  activate_on_initialization:=true \
-  device_id:=1 \
-  use_without_robot:=true
-```
+The board used is `aruco.png` in the repo root. Print it and mount it rigidly on `panda_link8`.
 
-> `use_without_robot:=true` means the hand node does **not** publish its own robot description — the full robot description (Franka + SoftHand) is handled separately by your launch file.
+Board parameters (used both to generate the image and to configure the RViz panel):
 
-### Control modes
-
-**GUI control** — interactive slider, useful for initial testing:
-
-```bash
-roslaunch qb_hand_control control.launch \
-  standalone:=false \
-  activate_on_initialization:=true \
-  device_id:=1 \
-  use_without_robot:=true \
-  use_controller_gui:=true
-```
-
-An rqt panel opens with a slider from `0` (fully open) to `1` (fully closed).
-
----
-
-**Topic control** — send commands from terminal or code (terminal 3):
-
-```bash
-rostopic pub -1 /qbhand1/control/qbhand1_synergy_trajectory_controller/command \
-  trajectory_msgs/JointTrajectory "
-header: {seq: 0, stamp: {secs: 0, nsecs: 0}, frame_id: ''}
-joint_names: ['qbhand1_synergy_joint']
-points:
-- positions: [1]
-  velocities: [0]
-  accelerations: [0]
-  effort: [0]
-  time_from_start: {secs: 1, nsecs: 0}"
-```
-
-| `positions` value | Hand state |
+| Parameter | Value |
 |---|---|
-| `[0]` | fully open |
-| `[0.5]` | half closed |
-| `[1]` | fully closed |
+| Dictionary | `DICT_4X4_50` |
+| Markers X | 2 |
+| Markers Y | 2 |
+| Marker size (px) | 180 |
+| Marker separation (px) | 40 — ratio 18:4 (4.5:1) |
+| Marker border (bits) | 1 |
+| Measured marker size (m) | **0.018** (1.8 cm each) |
+| Measured separation (m) | **0.004** (0.4 cm gap) |
 
-`time_from_start` controls speed: larger value = slower motion.
+### RViz HandEyeCalibration panel
 
----
+`Panels → Add New Panel → HandEyeCalibration`.
 
-**Waypoint control** — automated cyclic trajectory:
+**Target tab**:
+- *Target type*: `HandEyeTarget/ArucoGridBoard`
+- *Marker dictionary*: `DICT_4X4_50`
+- *Markers, X* = `2`, *Markers, Y* = `2`
+- *Marker size (m)*: `0.018`
+- *Marker separation (m)*: `0.004`
+- *Marker border bits*: `1`
+- *First marker ID*: `0`
+- *Image topic*: `/camera/color/image_raw`
+- *Camera info topic*: `/camera/color/camera_info`
 
-```bash
-roslaunch qb_hand_control control.launch \
-  standalone:=false \
-  device_id:=1 \
-  use_without_robot:=true \
-  use_waypoints:=true \
-  robot_name:=qbhand1 \
-  robot_package:=qb_hand_control
-```
+A green overlay appears on the board in the panel preview. If "Target detection failed": dictionary / size / separation wrong, marker not fully in frame, or poor lighting / blur.
 
-The trajectory is defined in `qb_hand_control/config/qbhand1_waypoints.yaml`.
+**Context tab**:
+- *Sensor configuration*: **Eye-to-hand**
+- *Sensor frame*: `camera_color_optical_frame`
+- *Object frame*: `handeye_target` (appears after the target is detected at least once)
+- *End-effector frame*: `panda_link8`
+- *Robot base frame*: `panda_link0`
 
-### Manual motor activation
+**Calibrate tab**:
+- *Calibration solver*: **`ParkBryan1994`** (do **not** use `Daniilidis1999` — it returns complex eigenvalues with few or poorly-varied samples).
+- Acquire **≥15 samples** with **varied orientations** (≥30° on different axes — pitch, roll, yaw of the EE).
+- Wait 1–2 s after each motion stops before clicking `Take sample`.
+- Click `Solve`. Sanity-check by re-solving with `TsaiLenz1989` — the two results should agree to a few millimetres / one degree.
 
-If `activate_on_initialization:=false`, activate the motor manually when ready:
+### Save and apply the calibration
 
-```bash
-rosservice call /communication_handler/activate_motors "{id: 1, max_repeats: 0}"
-```
+1. `Save camera pose` → save into `src/franka_handeye_calibration/launch/camera_pose.launch`.
+   It contains a `static_transform_publisher` with `world → camera_link` (xyz + quaternion).
+2. To use the result in another workspace, copy the `args` values (xyz + quaternion) into that workspace's camera pose YAML.
 
----
+**Validation**: in RViz add a `TF` display and a `RobotModel`. The frame `camera_color_optical_frame` must sit physically where the real RealSense is mounted; `handeye_target` must appear on the actual marker surface (within 1–2 cm).
 
-## 8. Franka + qbSoftHand integrated pipeline (MoveIt)
+### Common runtime issues
 
-Recommended way to bring up the **real** Franka with the qbSoftHand mounted on the
-flange and plan/execute with MoveIt. Two terminals are enough.
-
-**Pre-conditions**: Franka powered on, FCI active from Desk
-(`https://<robot_ip>/desk`), brakes released, qbSoftHand connected via USB.
-
-### Terminal 1 — robot bringup (Franka + hand + optional RealSense)
-
-```bash
-roslaunch franka_softhand_bringup franka_softhand.launch \
-    robot_ip:=<FRANKA_IP> \
-    device_id:=1
-```
-
-Defaults already set inside the launch:
-- `standalone:=true` — starts the qb communication handler
-- `activate_on_initialization:=true` — qbSoftHand motors armed at startup
-- `set_commands_async:=true` — required for the qb HW write loop at 1 ms
-- `realtime_config:=ignore` — avoids `RealtimeException` on non-PREEMPT_RT kernels.
-  If you have RT permissions/kernel set, override with `realtime_config:=enforce`.
-
-Useful overrides: `arm_id:=panda`, `use_specific_serial_port:=true serial_port_name:=/dev/ttyUSB0`.
-
-The base bringup does **not** start the RealSense camera. For perception or
-hand-eye calibration, use the dedicated launches under `franka_softhand_handeye`
-(see workflow 10).
-
-### Terminal 2 — MoveIt (controllers + move_group + RViz)
-
-```bash
-roslaunch franka_softhand_bringup franka_softhand_moveit.launch
-```
-
-Spawns `position_joint_trajectory_controller` for the arm (rigid, libfranka motion
-generator), wires MoveIt to the already-running
-`/qbhand/control/qbhand_synergy_trajectory_controller` for the hand, then starts
-`move_group` and RViz.
-
-Optional args: `use_rviz:=false`, `pipeline:=chomp`.
+- **`Controller Spawner couldn't find the expected controller_manager`** → `franka_control` is blocked at init. Causes: wrong `robot_ip`, brakes closed, FCI not active, robot in error state. Fix on Desk, then relaunch.
+- **`TypeError: can't convert complex to ...`** from the solver → switch away from `Daniilidis1999` and/or add more samples with wider orientation diversity.
+- **RealSense `control_transfer` libusb warnings** → harmless USB hiccups inside Docker; ignorable unless images stop arriving. Do **not** use `initial_reset:=true`.
 
 ---
 
-## Notes — manual hand commands
-
-The hand controller is `qbhand_synergy_trajectory_controller` in the `/qbhand/control/`
-namespace. Closure value range: **`0` = fully open, `1` = fully closed**.
-
-**Close:**
-```bash
-rostopic pub -1 /qbhand/control/qbhand_synergy_trajectory_controller/command \
-  trajectory_msgs/JointTrajectory "{
-    joint_names: ['qbhand_synergy_joint'],
-    points: [{positions: [1.0], time_from_start: {secs: 2}}]
-  }"
-```
-
-**Open:**
-```bash
-rostopic pub -1 /qbhand/control/qbhand_synergy_trajectory_controller/command \
-  trajectory_msgs/JointTrajectory "{
-    joint_names: ['qbhand_synergy_joint'],
-    points: [{positions: [0.0], time_from_start: {secs: 2}}]
-  }"
-```
-
-`time_from_start` controls the duration (larger = slower).
-
-GUI alternative (slider):
-```bash
-rosrun rqt_joint_trajectory_controller rqt_joint_trajectory_controller
-# select controller_manager: /qbhand/control, controller: qbhand_synergy_trajectory_controller
-```
-
-> Do not mix topic publishing and the action server on the same device.
-
----
-
-## Notes — recovering from a Franka reflex
-
-If MoveIt aborts with `motion aborted by reflex! ["cartesian_reflex"]` or any
-subsequent command is rejected with
-`command not possible in the current mode ("Reflex")`, the robot is in error
-state and must be re-armed:
+## Recovering from a Franka reflex
 
 ```bash
 rostopic pub -1 /franka_control/error_recovery/goal \
   franka_msgs/ErrorRecoveryActionGoal "{}"
 ```
 
-After recovery the arm will re-engage and accept new motion commands.
-
-**Avoiding reflexes:**
-- In RViz set `Velocity Scaling` and `Acceleration Scaling` to `0.1–0.2` for
-  conservative motions (the SoftHand on the flange adds inertia, making the default
-  `franka_control_node.yaml` cartesian thresholds easy to trip).
-- For higher speeds, raise the cartesian/torque collision thresholds at runtime:
-
-  ```bash
-  rosservice call /franka_control/set_force_torque_collision_behavior "{
-    lower_torque_thresholds_nominal: [40,40,36,36,32,28,24],
-    upper_torque_thresholds_nominal: [40,40,36,36,32,28,24],
-    lower_force_thresholds_nominal:  [40,40,40,50,50,50],
-    upper_force_thresholds_nominal:  [40,40,40,50,50,50]
-  }"
-  ```
-
----
-
-## 9. Full perception pipeline (Franka + MoveIt + RealSense)
-
-Complete operational setup for manipulation with perception. Run the four terminals in order.
-
-**Pre-conditions**: same as workflow 8. RealSense D435i physically mounted at a fixed position in the world; camera pose calibrated and stored in `franka_softhand_bringup/config/camera_pose.yaml`.
-
-### Terminal 1 — robot bringup (Franka + SoftHand)
-
-```bash
-roslaunch franka_softhand_bringup franka_softhand.launch \
-    robot_ip:=<FRANKA_IP> \
-    device_id:=1
-```
-
-### Terminal 2 — MoveIt + static planning scene
-
-```bash
-roslaunch franka_softhand_bringup franka_softhand_moveit.launch
-```
-
-Spawns arm and hand controllers, starts `move_group`, loads the static scene (table + robot base block), and opens RViz.
-
-### Terminal 3 — camera TF + MoveIt collision object
-
-```bash
-roslaunch franka_softhand_bringup camera_in_scene.launch
-```
-
-Publishes the static transform `world → camera_link` and adds the D435i collision box to the MoveIt planning scene. Pose and box dimensions are read from `franka_softhand_bringup/config/camera_pose.yaml`.
-
-To adjust the camera pose (fine-tuning after calibration), edit the `camera_pose` block in that YAML and relaunch this terminal only.
-
-### Terminal 4 — RealSense D435i (pointcloud + aligned depth)
-
-```bash
-roslaunch realsense2_camera rs_camera.launch \
-    enable_pointcloud:=true \
-    align_depth:=true
-```
-
-> **Docker note:** do **not** add `initial_reset:=true` — it causes issues inside Docker (see known quirks).
-
-Key topics published:
-
-| Topic | Content |
-|---|---|
-| `/camera/color/image_raw` | RGB image |
-| `/camera/depth/image_rect_raw` | Raw depth image |
-| `/camera/aligned_depth_to_color/image_raw` | Depth aligned to the RGB frame |
-| `/camera/depth/color/points` | XYZRGB pointcloud |
-
----
-
-## 10. Hand-eye calibration (eye-to-hand, RealSense D435i)
-
-Eye-to-hand setup: RealSense fixed in the world, ArUco board mounted on the
-robot flange. Uses `moveit_calibration` (submodule under
-`src/utils/moveit_calibration`, tracked on `master`).
-
-The Python dependencies of the default solver (`handeye`, `criutils`, `baldor`)
-are installed from apt in the Docker image
-(`ros-noetic-handeye/criutils/baldor`) — no submodule branch switch is required.
-Build the workspace inside the container:
-
-```bash
-catkin_make
-source devel/setup.bash
-```
-
-### Pre-conditions
-
-- Workflow 9 pre-conditions (Franka FCI, qbSoftHand connected).
-- RealSense D435i physically mounted at a fixed position in the world (not on
-  the EE).
-- ArUco board printed and rigidly attached to `panda_link8`.
-- `franka_softhand_handeye/config/camera_pose.yaml` contains a **reasonable
-  initial guess** for the camera pose (not zero — the solver converges much
-  better with a guess close to the truth).
-
-### Launch (single terminal)
-
-```bash
-roslaunch franka_softhand_handeye handeye_calibration.launch robot_ip:=<FRANKA_IP>
-```
-
-This brings up everything in one shot: Franka + qbSoftHand bringup, the
-handeye URDF wrapper (which adds the RealSense at the guess pose from
-`camera_pose.yaml`), MoveIt (`move_group` + planning scene), RealSense D435i
-node, and RViz.
-
-### RViz HandEyeCalibration panel
-
-`Panels → Add New Panel → HandEyeCalibration`.
-
-**Target tab** — must match the printed board:
-- *Target type*: `HandEyeTarget/ArucoGridBoard`
-- *Marker dictionary*: `DICT_4X4_50` (try `_100` / `_250` if detection fails)
-- *Markers, X* = `2`, *Markers, Y* = `2`
-- *Marker size (m)*: `0.018` (single black side, in metres — adjust to the
-  actual print)
-- *Marker separation (m)*: `0.004` (white gap between two markers)
-- *Marker border bits*: `1`
-- *First marker ID*: `0`
-- *Image topic*: `/camera/color/image_raw`
-- *Camera info topic*: `/camera/color/camera_info`
-
-A green overlay appears on the board both in the panel preview and on the
-`/handeye_calibration/target_detection` image topic. If "Target detection
-failed": dictionary / size / separation wrong, marker not fully in frame, or
-poor lighting / blur.
-
-**Context tab**:
-- *Sensor configuration*: **Eye-to-hand**
-- *Sensor frame*: `camera_color_optical_frame`
-- *Object frame*: `handeye_target` (appears only after the target is detected
-  at least once)
-- *End-effector frame*: `panda_link8`
-- *Robot base frame*: `panda_link0`
-
-**Calibrate tab**:
-- *Calibration solver*: **`ParkBryan1994`** (do **not** use `Daniilidis1999`
-  — it returns complex eigenvalues with few or poorly-varied samples,
-  failing with `TypeError: can't convert complex to ...`).
-- Acquire **≥15 samples** with **varied orientations** (≥30° on different
-  axes — pitch, roll, yaw of the EE).
-- Wait 1–2 s after each motion stops before clicking `Take sample` (libfranka
-  residual vibrations affect the pose).
-- For eye-to-hand you move the marker (= the robot); the camera is fixed.
-- Click `Solve`. Sanity-check by re-solving with `TsaiLenz1989` — the two
-  results should agree to a few millimetres / one degree.
-
-### Save and apply the calibration
-
-1. `Save camera pose` → save into
-   `franka_softhand_handeye/launch/camera_pose.launch`. It contains a
-   `static_transform_publisher` with the calibrated `world → camera_link`
-   transform (xyz + quaternion, plus an `rpy=...` comment).
-2. To use it in your perception pipeline, include it from a top-level launch:
-   ```xml
-   <include file="$(find franka_softhand_handeye)/launch/camera_pose.launch"/>
-   ```
-3. Optional: copy `xyz` and `rpy` from the `.launch` comment into
-   `franka_softhand_handeye/config/camera_pose.yaml` so the URDF guess used in
-   subsequent calibrations starts from the calibrated value.
-
-**Validation**: in RViz add a `TF` display and a `RobotModel`. The frame
-`camera_color_optical_frame` must sit physically where the real RealSense is
-mounted; clicking on the board in the world, `handeye_target` must appear on
-the actual marker surface (within 1–2 cm).
-
-### Common runtime issues
-
-- **`Controller Spawner couldn't find the expected controller_manager`** and
-  `franka_control` exposes no `/controller_manager/*` services → `franka_control`
-  is alive but blocked at init. Causes, in order: wrong `robot_ip`, brakes
-  closed, FCI not active on Franka Desk, or robot in error state. Fix on Desk
-  (`https://<robot_ip>/desk`), then relaunch.
-- **RViz shows the robot in the "all zero" pose** while the real robot is in
-  another configuration → that is the *Planning Request* ghost in MotionPlanning,
-  not the live state. Update Start State → `<current>`, or add a separate
-  `RobotModel` display that follows live TF.
-- **`TypeError: can't convert complex to ...`** from the solver → switch the
-  Calibration solver away from `Daniilidis1999` (see above) and/or add more
-  samples with wider orientation diversity.
-- **RealSense `control_transfer` libusb warnings** → harmless USB hiccups
-  typical of RealSense inside Docker; ignorable unless images stop arriving.
-
 ---
 
 ## Project structure
 
 ```
-franka/
+franka-moveit-calibration/
 ├── docker/
-│   ├── Dockerfile          # ROS Noetic image with Franka + MoveIt
-│   ├── entrypoint.sh       # Automatic ROS environment sourcing
-│   └── requirements.txt    # Python dependencies (optional)
+│   ├── Dockerfile          # ROS Noetic image with Franka + MoveIt + RealSense
+│   ├── entrypoint.sh
+│   └── requirements.txt
 ├── src/
+│   ├── franka_handeye_calibration/
+│   │   ├── config/
+│   │   │   ├── camera_pose.yaml   # initial guess (edit before calibrating)
+│   │   │   ├── saved_joints.yaml  # joint poses for sample collection
+│   │   │   └── saved_samples.yaml # collected calibration samples
+│   │   ├── launch/
+│   │   │   ├── handeye_calibration.launch  # main entry point
+│   │   │   └── camera_pose.launch          # saved calibration result (TF static)
+│   │   └── urdf/
+│   │       └── panda_handeye.urdf.xacro    # Panda + camera at guess pose
 │   └── utils/
-│       ├── qbdevice-ros/   # qbrobotics driver (submodule)
-│       └── qbhand-ros/     # qbSoftHand packages (submodule)
+│       └── moveit_calibration/  # submodule
 ├── docker-compose.yaml
 └── run_docker.sh
 ```

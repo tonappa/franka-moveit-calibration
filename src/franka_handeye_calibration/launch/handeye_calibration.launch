@@ -1,0 +1,74 @@
+<launch>
+  <!--
+    Hand-eye calibration (eye-to-hand): Franka Panda + RealSense D435i fissa.
+    Avvia franka_control, MoveIt (panda_moveit_config da apt) e la camera.
+
+    Uso:
+      roslaunch franka_handeye_calibration handeye_calibration.launch \
+                robot_ip:=<FRANKA_IP>
+
+    In RViz: Panels -> Add New Panel -> HandEyeCalibration
+  -->
+
+  <arg name="robot_ip" doc="IP del controller Franka"/>
+  <arg name="arm_id"   default="panda"/>
+  <arg name="pipeline" default="ompl"/>
+  <arg name="use_rviz" default="true"/>
+
+  <!-- Robot description: Panda + camera al guess pose -->
+  <param name="robot_description"
+         command="$(find xacro)/xacro
+                  $(find franka_handeye_calibration)/urdf/panda_handeye.urdf.xacro
+                  arm_id:=$(arg arm_id)"/>
+
+  <!-- Franka control -->
+  <node name="franka_control" pkg="franka_control" type="franka_control_node"
+        output="screen" required="true">
+    <rosparam command="load"
+              file="$(find franka_control)/config/franka_control_node.yaml"
+              subst_value="true"/>
+    <param name="robot_ip"        value="$(arg robot_ip)"/>
+    <param name="realtime_config" value="ignore"/>
+  </node>
+
+  <rosparam command="load"
+            file="$(find franka_control)/config/default_controllers.yaml"
+            subst_value="true"/>
+
+  <node name="franka_state_controller_spawner" pkg="controller_manager"
+        type="spawner" respawn="false" output="screen"
+        args="franka_state_controller"/>
+
+  <node name="arm_controller_spawner" pkg="controller_manager"
+        type="spawner" respawn="false" output="screen"
+        args="position_joint_trajectory_controller"/>
+
+  <!-- Joint states + TF -->
+  <node name="joint_state_publisher" pkg="joint_state_publisher"
+        type="joint_state_publisher" output="screen">
+    <rosparam param="source_list">[franka_state_controller/joint_states]</rosparam>
+    <param name="rate" value="50"/>
+  </node>
+
+  <node name="robot_state_publisher" pkg="robot_state_publisher"
+        type="robot_state_publisher" output="screen"/>
+
+  <!-- MoveIt move_group (panda_moveit_config da apt, no gripper) -->
+  <include file="$(find panda_moveit_config)/launch/move_group.launch">
+    <arg name="pipeline"               value="$(arg pipeline)"/>
+    <arg name="load_robot_description" value="false"/>
+  </include>
+
+  <!-- RealSense D435i -->
+  <include file="$(find realsense2_camera)/launch/rs_camera.launch">
+    <arg name="camera"            value="camera"/>
+    <arg name="enable_pointcloud" value="true"/>
+    <arg name="align_depth"       value="true"/>
+  </include>
+
+  <!-- RViz con config MoveIt standard panda -->
+  <node if="$(arg use_rviz)" name="rviz" pkg="rviz" type="rviz"
+        args="-d $(find panda_moveit_config)/launch/moveit.rviz"
+        output="screen"/>
+
+</launch>

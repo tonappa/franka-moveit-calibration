@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>franka_handeye_calibration</name>
+  <version>0.1.0</version>
+  <description>
+    Eye-to-hand calibration for Franka Panda with Intel RealSense D435i.
+    Provides URDF (Panda + camera at guess pose) and a single launch that
+    brings up franka_control, MoveIt (panda_moveit_config) and the RealSense
+    node ready for the moveit_calibration RViz panel.
+  </description>
+
+  <maintainer email="do.park@iit.it">Do Won Park</maintainer>
+  <license>BSD</license>
+  <author email="do.park@iit.it">Do Won Park</author>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>franka_description</exec_depend>
+  <exec_depend>franka_control</exec_depend>
+  <exec_depend>panda_moveit_config</exec_depend>
+  <exec_depend>realsense2_camera</exec_depend>
+  <exec_depend>realsense2_description</exec_depend>
+  <exec_depend>moveit_calibration_gui</exec_depend>
+  <exec_depend>moveit_calibration_plugins</exec_depend>
+  <exec_depend>joint_state_publisher</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>rviz</exec_depend>
+</package>

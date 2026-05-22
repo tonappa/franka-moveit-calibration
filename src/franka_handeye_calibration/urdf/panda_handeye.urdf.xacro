@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<!--
+  URDF per la hand-eye calibration (eye-to-hand).
+  Panda arm (da franka_description apt) + RealSense D435i fissa nel mondo.
+  La posa della camera e' il guess iniziale; dopo la calibrazione aggiorna
+  config/camera_pose.yaml con i valori risolti.
+-->
+<robot name="panda" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:arg name="arm_id" default="panda"/>
+
+  <!-- Panda arm macro (franka_description, installato via apt) -->
+  <xacro:include filename="$(find franka_description)/robots/common/franka_robot.xacro"/>
+
+  <xacro:franka_robot arm_id="$(arg arm_id)"
+                      joint_limits="${xacro.load_yaml('$(find franka_description)/robots/panda/joint_limits.yaml')}"/>
+
+  <!-- World frame fisso a panda_link0 -->
+  <link name="world"/>
+  <joint name="world_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="world"/>
+    <child  link="$(arg arm_id)_link0"/>
+  </joint>
+
+  <!-- RealSense D435i fissa nel mondo (posa = guess da config/) -->
+  <xacro:include filename="$(find realsense2_description)/urdf/_d435i.urdf.xacro"/>
+
+  <xacro:property name="cam_pose"
+                  value="${xacro.load_yaml('$(find franka_handeye_calibration)/config/camera_pose.yaml')['camera_pose']}"/>
+
+  <xacro:sensor_d435i parent="world" name="camera" use_nominal_extrinsics="true">
+    <origin xyz="${cam_pose['x']} ${cam_pose['y']} ${cam_pose['z']}"
+            rpy="${cam_pose['roll']} ${cam_pose['pitch']} ${cam_pose['yaw']}"/>
+  </xacro:sensor_d435i>
+
+</robot>
